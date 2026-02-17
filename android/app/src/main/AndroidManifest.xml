@@ -12,7 +12,7 @@
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <application
-        android:label="code_way_task"
+        android:label="scanify"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
