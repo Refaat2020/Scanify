@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
@@ -10,92 +12,105 @@ class DocumentProcessorImpl implements DocumentProcessor {
 
   static const _channel = MethodChannel('com.code/document_processor');
 
-  /// Full native pipeline: edge detect → warp → enhance.
-  /// Falls back to pure-Dart isolate if platform channel fails.
   @override
   Future<Uint8List> compositeDocument({required Uint8List imageBytes}) async {
-    try {
-      debugPrint('🔵 calling detectDocumentCorners');
-      final corners = await detectDocumentCorners(imageBytes: imageBytes);
-      debugPrint('🔵 corners: $corners');
-
-      if (corners != null) {
-        debugPrint('🔵 calling perspectiveTransform');
-        final result = await perspectiveTransform(
-          imageBytes: imageBytes,
-          corners: corners,
+    // ✅ Use native code ONLY on Android
+    if (Platform.isAndroid) {
+      try {
+        // ✅ Single call — let native handle everything
+        final result = await _channel.invokeMethod<Uint8List>(
+          'processDocument',
+          {'imageBytes': imageBytes},
         );
-        debugPrint('🔵 perspectiveTransform result: ${result?.length}');
-        if (result != null) return result;
-      }
 
-      debugPrint('🔵 falling back to processDocument channel');
-      final result = await _channel.invokeMethod<Uint8List>('processDocument', {
-        'imageBytes': imageBytes,
-      });
-      return result!;
-    } on PlatformException catch (e) {
-      debugPrint('❌ Native failed: ${e.code} ${e.message}');
-      return compute(_runDocumentProcessInIsolate, imageBytes);
+        if (result != null && result.isNotEmpty) {
+          debugPrint('✅ Native processing succeeded: ${result.length} bytes');
+          return result;
+        } else {
+          debugPrint(
+            '⚠️  Native processing returned null or empty result, using fallback',
+          );
+        }
+      } on PlatformException catch (e) {
+        debugPrint('❌ Native processing failed: ${e.code} - ${e.message}');
+        debugPrint('⚠️  Falling back to Dart implementation');
+      } catch (e, stackTrace) {
+        debugPrint('❌ Unexpected error in native processing: $e');
+        debugPrint('Stack trace: $stackTrace');
+        debugPrint('⚠️  Falling back to Dart implementation');
+      }
+    }
+
+    // ✅ Fallback to Dart implementation (iOS or if Android fails)
+    debugPrint('⚠️  Using Dart fallback processor');
+    try {
+      return await compute(_runDocumentProcessInIsolate, imageBytes);
+    } catch (e, stackTrace) {
+      debugPrint('❌ Dart fallback also failed: $e');
+      debugPrint('Stack trace: $stackTrace');
+      rethrow;
     }
   }
 
-  /// Detect document corners only — useful for showing a drag-to-adjust UI
-  /// before committing to the final warp.
+  /// Optional: Detect corners for UI preview (not used in automatic flow)
   @override
   Future<List<double>?> detectDocumentCorners({
     required Uint8List imageBytes,
   }) async {
+    if (!Platform.isAndroid) return null;
+
     try {
-      final result = await _channel.invokeMethod<List<dynamic>>(
+      final result = await _channel.invokeMethod<List<Object?>>(
         'detectCorners',
         {'imageBytes': imageBytes},
       );
-      debugPrint('detectCorners raw result: $result'); // 👈 add this first
-
-      return result?.cast<double>();
-    } on PlatformException catch (e) {
-      debugPrint('Corner detection failed: ${e.message}');
-      return null; // Caller falls back to compositeDocument()
+      return result?.map((e) => (e as num).toDouble()).toList();
+    } catch (e) {
+      debugPrint('Corner detection failed: $e');
+      return null;
     }
   }
 
-  /// Apply perspective warp given manually confirmed or detected corners.
+  /// Optional: Manual warp with user-adjusted corners
   @override
   Future<Uint8List?> perspectiveTransform({
     required Uint8List imageBytes,
-    required List<double> corners, // [x1,y1, x2,y2, x3,y3, x4,y4]
+    required List<double> corners,
   }) async {
+    if (!Platform.isAndroid) return null;
+
     try {
-      final result = await _channel.invokeMethod<Uint8List>(
-        'perspectiveTransform',
-        {'imageBytes': imageBytes, 'corners': corners},
-      );
-      return result;
-    } on PlatformException catch (e) {
-      debugPrint('Perspective transform failed: ${e.message}');
-      return null; // Caller falls back to compositeDocument()
+      return await _channel.invokeMethod<Uint8List>('perspectiveTransform', {
+        'imageBytes': imageBytes,
+        'corners': corners,
+      });
+    } catch (e) {
+      debugPrint('Perspective transform failed: $e');
+      return null;
     }
   }
 }
 
-/// Runs in background isolate — fast adaptive processing
+/// Dart fallback — runs on iOS or if native fails
 Uint8List _runDocumentProcessInIsolate(Uint8List imageBytes) {
-  // 1. Decode
-  final original = img.decodeImage(imageBytes)!;
+  if (imageBytes.isEmpty) {
+    throw ArgumentError('Image bytes are empty');
+  }
 
-  // 2. Convert to grayscale
+  final original = img.decodeImage(imageBytes);
+  if (original == null) {
+    throw FormatException('Failed to decode image from bytes');
+  }
+
   final gray = img.grayscale(original);
-
-  // 3. Enhance contrast (makes edges clearer)
   final enhanced = enhanceContrast(gray);
-
-  // 4. Auto-crop white borders (adaptive edge detection)
   final cropped = autoCropDocument(enhanced);
-
-  // 5. Apply sharpening for better text clarity
   final sharpened = sharpenImage(cropped);
 
-  // 6. Encode as high-quality JPEG
-  return Uint8List.fromList(img.encodeJpg(sharpened, quality: 95));
+  final encoded = img.encodeJpg(sharpened, quality: 95);
+  if (encoded.isEmpty) {
+    throw StateError('Failed to encode processed image');
+  }
+
+  return Uint8List.fromList(encoded);
 }

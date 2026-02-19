@@ -151,38 +151,45 @@ class ImageProcessingDataSourceImpl implements ImageProcessingDataSource {
     String imagePath,
   ) async {
     try {
-      // 1. Read bytes — async I/O
-      final imageBytes = await File(imagePath).readAsBytes();
+      // 1. Validate and read bytes
+      final file = File(imagePath);
+      if (!await file.exists()) {
+        throw ImageProcessingException('Image file does not exist: $imagePath');
+      }
+      
+      final imageBytes = await file.readAsBytes();
+      if (imageBytes.isEmpty) {
+        throw ImageProcessingException('Image file is empty: $imagePath');
+      }
 
-      // 2. ML Kit text recognition — native thread, no compute needed
-      final inputImage = InputImage.fromFilePath(imagePath);
-      await textRecognizer.processImage(inputImage);
+      // 2. ML Kit text recognition (validates it's a document)
+      // This is optional validation - don't fail if text recognition fails
+      try {
+        final inputImage = InputImage.fromFilePath(imagePath);
+        await textRecognizer.processImage(inputImage);
+      } catch (e) {
+        debugPrint('⚠️  Text recognition validation failed (continuing anyway): $e');
+      }
 
-      // 3. ✅ NATIVE — edge detection via OpenCV platform channel
-      //    Returns 8 doubles [x1,y1, x2,y2, x3,y3, x4,y4] or null if not found
-      final corners = await documentProcessor.detectDocumentCorners(
+      // 3. ✅ Single call to processor
+      //    Android: native processDocument (all-in-one)
+      //    iOS: Dart fallback
+      final processedJpgBytes = await documentProcessor.compositeDocument(
         imageBytes: imageBytes,
       );
 
-      print('helllo');
-      print(corners);
+      if (processedJpgBytes.isEmpty) {
+        throw ImageProcessingException('Document processing returned empty result');
+      }
 
-      // 4. ✅ NATIVE — perspective warp + enhance via OpenCV platform channel
-      //    Falls back to pure-Dart pipeline inside compositeDocument() on PlatformException
-      final processedJpgBytes = corners != null
-          ? await documentProcessor.perspectiveTransform(
-                  imageBytes: imageBytes,
-                  corners: corners,
-                ) ??
-                await documentProcessor.compositeDocument(
-                  imageBytes: imageBytes,
-                )
-          : await documentProcessor.compositeDocument(imageBytes: imageBytes);
-
-      // 5. ✅ COMPUTE — PDF generation in background isolate
+      // 4. Generate PDF
       final pdfBytes = await compute(_pdfFromJpgBytes, processedJpgBytes);
 
-      // 6. Write PDF — async I/O
+      if (pdfBytes.isEmpty) {
+        throw ImageProcessingException('PDF generation returned empty result');
+      }
+
+      // 5. Save PDF
       final pdfPath = await FileHelper.buildResultPath(
         subDir: AppConstants.documentResultsDir,
         extension: 'pdf',
@@ -195,7 +202,9 @@ class ImageProcessingDataSourceImpl implements ImageProcessingDataSource {
       );
     } on ImageProcessingException {
       rethrow;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('Document processing error: $e');
+      debugPrint('Stack trace: $stackTrace');
       throw ImageProcessingException('Document processing failed: $e');
     }
   }

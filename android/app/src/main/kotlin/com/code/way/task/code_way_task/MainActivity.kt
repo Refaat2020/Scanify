@@ -16,45 +16,89 @@ import org.opencv.core.CvType
 class MainActivity : FlutterActivity() {
 
     private val CHANNEL = "com.code/document_processor"
+    @Volatile
+    private var isOpenCVInitialized = false
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        OpenCVLoader.initLocal()
+        
+        // Initialize OpenCV - try both initDebug and initLocal
+        // initDebug works in debug builds, initLocal works in release builds
+        if (OpenCVLoader.initDebug()) {
+            android.util.Log.d("OpenCV", "✅ OpenCV initDebug success")
+            isOpenCVInitialized = true
+        } else if (OpenCVLoader.initLocal()) {
+            android.util.Log.d("OpenCV", "✅ OpenCV initLocal success")
+            isOpenCVInitialized = true
+        } else {
+            android.util.Log.e("OpenCV", "❌ OpenCV initialization failed")
+            isOpenCVInitialized = false
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "processDocument" -> {
-                        val imageBytes = call.argument<ByteArray>("imageBytes")!!
+                        val imageBytes = call.argument<ByteArray>("imageBytes")
+                        if (imageBytes == null) {
+                            result.error("INVALID_ARGUMENT", "imageBytes is null", null)
+                            return@setMethodCallHandler
+                        }
                         try {
+                            ensureOpenCVInitialized()
                             val processed = processDocument(imageBytes)
                             result.success(processed)
                         } catch (e: Exception) {
-                            result.error("PROCESSING_ERROR", e.message, null)
+                            android.util.Log.e("OpenCV", "processDocument error: ${e.message}", e)
+                            result.error("PROCESSING_ERROR", e.message ?: "Unknown error", null)
                         }
                     }
                     "detectCorners" -> {
-                        val imageBytes = call.argument<ByteArray>("imageBytes")!!
+                        val imageBytes = call.argument<ByteArray>("imageBytes")
+                        if (imageBytes == null) {
+                            result.error("INVALID_ARGUMENT", "imageBytes is null", null)
+                            return@setMethodCallHandler
+                        }
                         try {
+                            ensureOpenCVInitialized()
                             val corners = detectDocumentCorners(imageBytes)
                             result.success(corners)
                         } catch (e: Exception) {
-                            result.error("DETECTION_ERROR", e.message, null)
+                            android.util.Log.e("OpenCV", "detectCorners error: ${e.message}", e)
+                            result.error("DETECTION_ERROR", e.message ?: "Unknown error", null)
                         }
                     }
                     "perspectiveTransform" -> {
-                        val imageBytes = call.argument<ByteArray>("imageBytes")!!
-                        val corners = call.argument<List<Double>>("corners")!!
+                        val imageBytes = call.argument<ByteArray>("imageBytes")
+                        val corners = call.argument<List<Double>>("corners")
+                        if (imageBytes == null || corners == null) {
+                            result.error("INVALID_ARGUMENT", "imageBytes or corners is null", null)
+                            return@setMethodCallHandler
+                        }
                         try {
+                            ensureOpenCVInitialized()
                             val transformed = applyPerspectiveTransform(imageBytes, corners)
                             result.success(transformed)
                         } catch (e: Exception) {
-                            result.error("TRANSFORM_ERROR", e.message, null)
+                            android.util.Log.e("OpenCV", "perspectiveTransform error: ${e.message}", e)
+                            result.error("TRANSFORM_ERROR", e.message ?: "Unknown error", null)
                         }
                     }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun ensureOpenCVInitialized() {
+        if (!isOpenCVInitialized) {
+            // Try to initialize again if not already initialized
+            if (OpenCVLoader.initDebug() || OpenCVLoader.initLocal()) {
+                isOpenCVInitialized = true
+                android.util.Log.d("OpenCV", "✅ OpenCV initialized on demand")
+            } else {
+                throw IllegalStateException("OpenCV is not initialized. Please restart the app.")
+            }
+        }
     }
 
     private fun processDocument(imageBytes: ByteArray): ByteArray {
@@ -114,7 +158,7 @@ class MainActivity : FlutterActivity() {
             val h = src.height()
             val aspectRatio = maxOf(w, h).toDouble() / minOf(w, h).toDouble()
 
-            if (aspectRatio !in 1.2..1.5) {
+            if (aspectRatio !in 1.2..1.7) {
                 android.util.Log.d("OpenCV", "isAlreadyCropped: false — aspectRatio=$aspectRatio")
                 return false
             }
@@ -128,7 +172,7 @@ class MainActivity : FlutterActivity() {
             )
             val brightBorders = medians.count { it > 180 }
             android.util.Log.d("OpenCV", "isAlreadyCropped: medians=$medians brightBorders=$brightBorders")
-            brightBorders >= 3
+            brightBorders >=4
         } catch (e: Exception) {
             android.util.Log.d("OpenCV", "isAlreadyCropped crashed: ${e.message} — defaulting to false")
             false
@@ -177,11 +221,12 @@ class MainActivity : FlutterActivity() {
                 Imgproc.findContours(edges, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
 
                 val candidates = contours
-                    .filter { Imgproc.contourArea(it) / srcArea in 0.02..0.95 }
+                    .filter { Imgproc.contourArea(it) / srcArea in 0.10..0.70 }
                     .sortedByDescending { Imgproc.contourArea(it) }
 
                 for (candidate in candidates.take(8)) {
                     val quad = approxToQuad(candidate, src) ?: continue
+
                     val rectScore = rectangularityScore(quad)
                     if (rectScore > 80.0) continue
 
@@ -191,12 +236,12 @@ class MainActivity : FlutterActivity() {
                     val height = (Math.sqrt(Math.pow(bl.x - tl.x, 2.0) + Math.pow(bl.y - tl.y, 2.0)) +
                             Math.sqrt(Math.pow(br.x - tr.x, 2.0) + Math.pow(br.y - tr.y, 2.0))) / 2.0
 
-                    // ✅ Reject quads that are too small relative to the image
-                    // The document must cover at least 20% of width AND 20% of height
                     val widthRatio = width / src.width()
                     val heightRatio = height / src.height()
-                    if (widthRatio < 0.20 || heightRatio < 0.20) {
-                        android.util.Log.d("OpenCV", "Rejected: too small widthRatio=$widthRatio heightRatio=$heightRatio")
+                    if (widthRatio < 0.20 || heightRatio < 0.20) continue
+
+                    if (isSkinDominated(src, quad)) {
+                        android.util.Log.d("OpenCV", "Rejected: skin-dominated region")
                         continue
                     }
 
@@ -205,26 +250,80 @@ class MainActivity : FlutterActivity() {
                     val aspectScore = knownRatios.minOf { Math.abs(aspectRatio - it) }
                     val area = Imgproc.contourArea(candidate) / srcArea
 
+                    val expandedQuad = expandQuad(quad, src, expandPx = 30.0)
+
                     android.util.Log.d("OpenCV",
                         "blur=$blurSize canny=$low/$high area=$area " +
-                                "rectScore=$rectScore aspectRatio=$aspectRatio aspectScore=$aspectScore " +
-                                "widthRatio=$widthRatio heightRatio=$heightRatio")
+                                "rectScore=$rectScore aspectRatio=$aspectRatio aspectScore=$aspectScore")
 
-                    allCandidates.add(QuadCandidate(quad, rectScore, aspectScore, area))
+                    allCandidates.add(QuadCandidate(expandedQuad, rectScore, aspectScore, area))
                 }
             }
         }
 
         if (allCandidates.isEmpty()) return null
 
-        // Among good aspect matches, prefer the LARGEST area (whole card over internal elements)
-        val goodAspect = allCandidates.filter { it.aspectScore < 0.3 }
+        val goodAspect = allCandidates.filter { it.aspectScore < 0.10 }
         val pool = if (goodAspect.isNotEmpty()) goodAspect else allCandidates
 
-        val best = pool.maxByOrNull { it.area }!! // ✅ largest area wins among good candidates
+        // ✅ Prioritize rectangularity (lower rectScore is better) over aspect ratio
+        // Weight: rectScore * 2.0 + aspectScore * 50.0
+        // This ensures we get the most rectangular shape first
+        val best = pool.minByOrNull { candidate ->
+            val areaPenalty = if (candidate.area in 0.15..0.55) 0.0
+            else Math.abs(candidate.area - 0.35) * 200.0
+
+            candidate.score * 1.0 + candidate.aspectScore * 100.0 + areaPenalty
+        }!!
+
         android.util.Log.d("OpenCV",
             "✅ Best quad rectScore=${best.score} aspectScore=${best.aspectScore} area=${best.area}")
         return best.pts
+    }
+    /// Returns true if the quad region is dominated by skin tones.
+/// Skin in HSV: H=0-25, S=30-170, V=80-255
+    private fun isSkinDominated(src: Mat, quad: List<Point>): Boolean {
+        try {
+            val (tl, tr, br, bl) = quad
+            val shrinkFactor = 0.10
+            fun lerp(a: Point, b: Point, t: Double) = Point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+
+            val innerTL = lerp(lerp(tl, tr, shrinkFactor), lerp(bl, br, shrinkFactor), shrinkFactor)
+            val innerTR = lerp(lerp(tr, tl, shrinkFactor), lerp(br, bl, shrinkFactor), shrinkFactor)
+            val innerBR = lerp(lerp(br, bl, shrinkFactor), lerp(tr, tl, shrinkFactor), shrinkFactor)
+            val innerBL = lerp(lerp(bl, br, shrinkFactor), lerp(tl, tr, shrinkFactor), shrinkFactor)
+
+            val mask = Mat.zeros(src.rows(), src.cols(), CvType.CV_8UC1)
+            Imgproc.fillPoly(mask, listOf(MatOfPoint(innerTL, innerTR, innerBR, innerBL)), Scalar(255.0))
+
+            val hsv = Mat()
+            Imgproc.cvtColor(src, hsv, Imgproc.COLOR_BGR2HSV)
+
+            // ✅ Tighter skin range — excludes beige/cream card backgrounds
+            // Real skin: higher saturation (>50), more specific hue (0-15)
+            val skinMask1 = Mat() // Light skin
+            val skinMask2 = Mat() // Medium/dark skin
+            Core.inRange(hsv, Scalar(0.0, 50.0, 120.0), Scalar(15.0, 150.0, 255.0), skinMask1)
+            Core.inRange(hsv, Scalar(0.0, 80.0, 80.0), Scalar(20.0, 200.0, 200.0), skinMask2)
+
+            val skinMask = Mat()
+            Core.bitwise_or(skinMask1, skinMask2, skinMask)
+
+            val quadOnly = Mat()
+            Core.bitwise_and(skinMask, mask, quadOnly)
+
+            val skinPixels = Core.countNonZero(quadOnly)
+            val quadPixels = Core.countNonZero(mask)
+            val skinRatio = skinPixels.toDouble() / quadPixels.toDouble()
+
+            android.util.Log.d("OpenCV", "inner skinRatio=$skinRatio")
+
+            // ✅ Raise threshold to 0.75 — only reject if overwhelmingly skin
+            return skinRatio > 0.85
+        } catch (e: Exception) {
+            android.util.Log.d("OpenCV", "isSkinDominated error: ${e.message}")
+            return false
+        }
     }
 
 // ── Strategy 2: Adaptive threshold — handles uneven lighting on cards ────────
@@ -234,14 +333,8 @@ class MainActivity : FlutterActivity() {
         val thresh = Mat()
         val edges = Mat()
 
-        Imgproc.adaptiveThreshold(
-            gray, thresh, 255.0,
-            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-            Imgproc.THRESH_BINARY, 21, 5.0
-        )
-        // Invert so card appears as white blob on dark background
+        Imgproc.adaptiveThreshold(gray, thresh, 255.0, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY, 21, 5.0)
         Core.bitwise_not(thresh, thresh)
-
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(7.0, 7.0))
         Imgproc.morphologyEx(thresh, thresh, Imgproc.MORPH_CLOSE, kernel)
         Imgproc.Canny(thresh, edges, 10.0, 50.0)
@@ -250,16 +343,19 @@ class MainActivity : FlutterActivity() {
         Imgproc.findContours(edges, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
 
         val candidate = contours
-            .filter { Imgproc.contourArea(it) / srcArea in 0.02..0.95 }
+            .filter { Imgproc.contourArea(it) / srcArea in 0.05..0.70 }
             .maxByOrNull { Imgproc.contourArea(it) } ?: return null
 
         val quad = approxToQuad(candidate, src) ?: return null
         val score = rectangularityScore(quad)
         android.util.Log.d("OpenCV", "Strategy 2 score=$score")
-        return if (score < 80.0) quad else null
+        if (score >= 88.0) return null
+        if (isSkinDominated(src, quad)) { // ✅ skin check
+            android.util.Log.d("OpenCV", "Strategy 2 rejected: skin-dominated")
+            return null
+        }
+        return expandQuad(quad, src, expandPx = 20.0)
     }
-
-// ── Strategy 3: Morphological closing ────────────────────────────────────────
 
     private fun tryMorphologicalApproach(gray: Mat, src: Mat): List<Point>? {
         val srcArea = src.width() * src.height().toDouble()
@@ -276,14 +372,38 @@ class MainActivity : FlutterActivity() {
         val contours = mutableListOf<MatOfPoint>()
         Imgproc.findContours(edges, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
 
-        val candidate = contours
-            .filter { Imgproc.contourArea(it) / srcArea in 0.02..0.95 }
-            .maxByOrNull { Imgproc.contourArea(it) } ?: return null
+        // ✅ Check ALL candidates, not just the largest — pick best by aspect ratio
+        val srcW = src.width(); val srcH = src.height()
+        val knownRatios = listOf(1.586, 1.95, 1.414, 1.5, 1.333, 2.0)
 
-        val quad = approxToQuad(candidate, src) ?: return null
-        val score = rectangularityScore(quad)
-        android.util.Log.d("OpenCV", "Strategy 3 score=$score")
-        return if (score < 80.0) quad else null
+        val validCandidates = contours
+            .filter { Imgproc.contourArea(it) / srcArea in 0.05..0.70 }
+            .sortedByDescending { Imgproc.contourArea(it) }
+            .take(5)
+            .mapNotNull { contour ->
+                val quad = approxToQuad(contour, src) ?: return@mapNotNull null
+                val score = rectangularityScore(quad)
+                if (score >= 88.0) return@mapNotNull null
+
+                val (tl, tr, br, bl) = quad
+                val w = (Math.sqrt(Math.pow(tr.x-tl.x,2.0)+Math.pow(tr.y-tl.y,2.0)) +
+                        Math.sqrt(Math.pow(br.x-bl.x,2.0)+Math.pow(br.y-bl.y,2.0))) / 2.0
+                val h = (Math.sqrt(Math.pow(bl.x-tl.x,2.0)+Math.pow(bl.y-tl.y,2.0)) +
+                        Math.sqrt(Math.pow(br.x-tr.x,2.0)+Math.pow(br.y-tr.y,2.0))) / 2.0
+                val aspect = maxOf(w, h) / minOf(w, h)
+                val aspectScore = knownRatios.minOf { Math.abs(aspect - it) }
+
+                if (isSkinDominated(src, quad)) return@mapNotNull null
+
+                Triple(expandQuad(quad, src, 30.0), score, aspectScore)
+            }
+
+        if (validCandidates.isEmpty()) return null
+
+        // Pick best aspect ratio match
+        val best = validCandidates.minByOrNull { it.third } ?: return null
+        android.util.Log.d("OpenCV", "Strategy 3 score=${best.second} aspectScore=${best.third}")
+        return if (best.third < 0.5) best.first else null
     }
 
     private fun findBestQuad(edges: Mat, src: Mat): List<Point>? {
@@ -329,7 +449,6 @@ class MainActivity : FlutterActivity() {
             val pts = approx.toArray().toList()
 
             if (pts.size == 4) {
-                // Score = how close to a perfect rectangle (lower = better)
                 val score = rectangularityScore(pts)
                 android.util.Log.d("OpenCV", "epsilon=$epsilon pts=4 score=$score")
                 if (score < bestScore) {
@@ -344,8 +463,16 @@ class MainActivity : FlutterActivity() {
             return bestQuad
         }
 
-        // Fallback to bounding rect
+        // ✅ Bounding rect fallback — only use if contour is large enough to matter
         val rect = Imgproc.boundingRect(MatOfPoint(*hullPoints.toTypedArray()))
+        val rectAspect = maxOf(rect.width, rect.height).toDouble() / minOf(rect.width, rect.height)
+        android.util.Log.d("OpenCV", "approxToQuad: bounding rect fallback aspect=$rectAspect")
+
+        // Only return bounding rect if it has a document-like aspect ratio
+        val knownRatios = listOf(1.586, 1.95, 1.414, 1.5, 1.333, 2.0)
+        val aspectScore = knownRatios.minOf { Math.abs(rectAspect - it) }
+        if (aspectScore > 0.5) return null // Too far from any known document ratio
+
         return orderPoints(listOf(
             Point(rect.x.toDouble(), rect.y.toDouble()),
             Point((rect.x + rect.width).toDouble(), rect.y.toDouble()),
@@ -427,14 +554,16 @@ class MainActivity : FlutterActivity() {
         val warped = Mat()
         Imgproc.warpPerspective(src, warped, M, Size(maxWidth.toDouble(), maxHeight.toDouble()))
 
-        // ✅ Auto-rotate so the longer dimension is always the width (landscape)
-        return if (warped.height() > warped.width()) {
+        // Auto-rotate so longer side is width
+        val oriented = if (warped.height() > warped.width()) {
             val rotated = Mat()
             Core.rotate(warped, rotated, Core.ROTATE_90_CLOCKWISE)
             rotated
-        } else {
-            warped
-        }
+        } else warped
+
+        // ✅ Don't force aspect ratio - preserve original document proportions
+        // Only rotate if needed, but keep the natural aspect ratio
+        return oriented
     }
 
     private fun enhanceDocument(src: Mat): Mat {
@@ -451,24 +580,25 @@ class MainActivity : FlutterActivity() {
         }
         val blurred = Mat()
         val result = Mat()
-        Imgproc.GaussianBlur(bgr, blurred, Size(0.0, 0.0), 3.0)
-        Core.addWeighted(bgr, 1.5, blurred, -0.5, 0.0, result)
+        Imgproc.GaussianBlur(bgr, blurred, Size(0.0, 0.0), 1.0)
+        Core.addWeighted(bgr, 1.1, blurred, -0.1, 0.0, result)
         return result
     }
 
     private fun enhanceTextDocument(src: Mat): Mat {
-        val gray = Mat()
-        val enhanced = Mat()
+        val bgr = Mat()
         when (src.channels()) {
-            1 -> src.copyTo(gray)
-            else -> Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGR2GRAY)
+            1 -> Imgproc.cvtColor(src, bgr, Imgproc.COLOR_GRAY2BGR)
+            4 -> Imgproc.cvtColor(src, bgr, Imgproc.COLOR_RGBA2BGR)
+            else -> src.copyTo(bgr)
         }
-        Imgproc.adaptiveThreshold(
-            gray, enhanced, 255.0,
-            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-            Imgproc.THRESH_BINARY, 11, 10.0
-        )
-        return enhanced
+
+        val blurred = Mat()
+        val result = Mat()
+        Imgproc.GaussianBlur(bgr, blurred, Size(0.0, 0.0), 1.0)
+        Core.addWeighted(bgr, 1.1, blurred, -0.1, 0.0, result)
+
+        return result
     }
 
     private fun matToBytes(mat: Mat): ByteArray {
@@ -512,4 +642,19 @@ class MainActivity : FlutterActivity() {
         return bgrMat
     }
 
+    private fun expandQuad(pts: List<Point>, src: Mat, expandPx: Double = 8.0): List<Point> {
+        val cx = pts.map { it.x }.average()
+        val cy = pts.map { it.y }.average()
+        return pts.map { pt ->
+            val dx = pt.x - cx
+            val dy = pt.y - cy
+            val length = Math.sqrt(dx * dx + dy * dy)
+            if (length == 0.0) return@map pt
+            val scale = (length + expandPx) / length
+            Point(
+                (cx + dx * scale).coerceIn(0.0, src.width() - 1.0),
+                (cy + dy * scale).coerceIn(0.0, src.height() - 1.0)
+            )
+        }
+    }
 }
