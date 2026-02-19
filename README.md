@@ -190,7 +190,7 @@ Benefits:
 - 40-60x faster than pure Dart implementations
 - Production-grade edge detection with 3 fallback strategies
 - Handles complex backgrounds, uneven lighting, and hand occlusion
-- Automatic aspect ratio correction for standard ID cards
+- Automatic aspect ratio correction
 
 **Architecture:**
 ```dart
@@ -214,7 +214,7 @@ MainActivity.kt → OpenCV native processing
 6. **Quad expansion**: Compensates for hand/finger occlusion (2.5x on left side)
 7. **Perspective transform**: Warps quadrilateral to rectangle
 8. **Auto-rotation**: Makes longer side the width
-9. **Aspect correction**: Resizes to exact ID card ratio (1.586:1) when close
+9. **Aspect correction**: Resizes to exact ratio  when close
 10. **Enhancement**: Card sharpening OR document binarization based on aspect ratio
 
 **Fallback Behavior:**
@@ -232,23 +232,22 @@ All CPU-intensive operations (`img.grayscale`, `img.compositeImage`, `pdf.save()
 
 ## 📦 Project Structure
 
-**Total files**: 92+ Dart files + 1 Kotlin native implementation across 6 features
 
-**Core Widgets** (24 files)
+**Core Widgets** 
 - AppButton (primary, secondary, danger variants)
 - AppCard, ErrorView, LoadingOverlay
 - GradientText, GradientDivider, ProcessingTypeBadge
 
 **Features**
-- **Home** (17 files) — History list, Hive persistence, delete with optimistic rollback
-- **Processing** (18 files) — Image capture, ML Kit detection, native OpenCV integration, face/document pipelines
-- **Result** (7 files) — Before/after slider, side-by-side compare, PDF viewer
-- **History Detail** (6 files) — Full-screen viewer, metadata card, share/delete/OCR actions
-- **OCR** (12 files) — Text extraction with search highlighting, copy, share
-- **Batch** (7 files) — Multi-image picker, queue processing, live progress tracker
+- **Home**  — History list, Hive persistence, delete with optimistic rollback
+- **Processing**  — Image capture, ML Kit detection, native OpenCV integration, face/document pipelines
+- **Result**  — Before/after slider, side-by-side compare, PDF viewer
+- **History Detail**  — Full-screen viewer, metadata card, share/delete/OCR actions
+- **OCR**  — Text extraction with search highlighting, copy, share
+- **Batch** — Multi-image picker, queue processing, live progress tracker
 
-**Android Native** (1 file)
-- **MainActivity.kt** (700+ lines) — Production-grade OpenCV document scanner with multi-strategy detection
+**Android Native** 
+- **MainActivity.kt**  — Production-grade OpenCV document scanner with multi-strategy detection
 
 ---
 
