@@ -158,17 +158,31 @@ class ImageProcessingDataSourceImpl implements ImageProcessingDataSource {
       final inputImage = InputImage.fromFilePath(imagePath);
       await textRecognizer.processImage(inputImage);
 
-      // 3. ✅ COMPUTE — grayscale + contrast + autocrop in background isolate
-      final processedJpgBytes = await documentProcessor.compositeDocument(
+      // 3. ✅ NATIVE — edge detection via OpenCV platform channel
+      //    Returns 8 doubles [x1,y1, x2,y2, x3,y3, x4,y4] or null if not found
+      final corners = await documentProcessor.detectDocumentCorners(
         imageBytes: imageBytes,
       );
 
-      // 4. ✅ COMPUTE — PDF generation in background isolate
-      //    compute() requires a top-level function; pdf.save() is CPU-heavy.
-      //    We wrap in a static-compatible form using a helper.
+      print('helllo');
+      print(corners);
+
+      // 4. ✅ NATIVE — perspective warp + enhance via OpenCV platform channel
+      //    Falls back to pure-Dart pipeline inside compositeDocument() on PlatformException
+      final processedJpgBytes = corners != null
+          ? await documentProcessor.perspectiveTransform(
+                  imageBytes: imageBytes,
+                  corners: corners,
+                ) ??
+                await documentProcessor.compositeDocument(
+                  imageBytes: imageBytes,
+                )
+          : await documentProcessor.compositeDocument(imageBytes: imageBytes);
+
+      // 5. ✅ COMPUTE — PDF generation in background isolate
       final pdfBytes = await compute(_pdfFromJpgBytes, processedJpgBytes);
 
-      // 5. Write PDF — async I/O
+      // 6. Write PDF — async I/O
       final pdfPath = await FileHelper.buildResultPath(
         subDir: AppConstants.documentResultsDir,
         extension: 'pdf',
@@ -185,7 +199,6 @@ class ImageProcessingDataSourceImpl implements ImageProcessingDataSource {
       throw ImageProcessingException('Document processing failed: $e');
     }
   }
-
   // ── Cleanup ────────────────────────────────────────────────────────────────
 
   Future<void> dispose() async {
