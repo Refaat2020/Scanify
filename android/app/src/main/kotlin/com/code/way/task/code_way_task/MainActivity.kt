@@ -11,6 +11,7 @@ import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 import java.io.ByteArrayOutputStream
 import android.graphics.Bitmap
+import org.opencv.core.CvType
 
 class MainActivity : FlutterActivity() {
 
@@ -105,37 +106,50 @@ class MainActivity : FlutterActivity() {
     /// Returns true if the image is already a clean flat document scan.
 /// Detects this by checking if the borders are predominantly white/light.
     private fun isAlreadyCroppedDocument(src: Mat): Boolean {
-        val gray = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGR2GRAY)
+        return try {
+            val gray = Mat()
+            Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGR2GRAY)
 
-        val w = src.width()
-        val h = src.height()
-        val borderThickness = (minOf(w, h) * 0.05).toInt().coerceAtLeast(10)
+            val w = src.width()
+            val h = src.height()
+            val aspectRatio = maxOf(w, h).toDouble() / minOf(w, h).toDouble()
 
-        // Sample the 4 border strips
-        val top    = gray.submat(0, borderThickness, 0, w)
-        val bottom = gray.submat(h - borderThickness, h, 0, w)
-        val left   = gray.submat(0, h, 0, borderThickness)
-        val right  = gray.submat(0, h, w - borderThickness, w)
+            if (aspectRatio !in 1.2..1.5) {
+                android.util.Log.d("OpenCV", "isAlreadyCropped: false — aspectRatio=$aspectRatio")
+                return false
+            }
 
-        val topMean    = Core.mean(top).`val`[0]
-        val bottomMean = Core.mean(bottom).`val`[0]
-        val leftMean   = Core.mean(left).`val`[0]
-        val rightMean  = Core.mean(right).`val`[0]
-
-        val avgBorderBrightness = (topMean + bottomMean + leftMean + rightMean) / 4.0
-
-        // Also check aspect ratio — A4 is 1:1.414, letter is 1:1.294
-        val aspectRatio = maxOf(w, h).toDouble() / minOf(w, h).toDouble()
-        val isDocumentAspect = aspectRatio in 1.2..1.6
-
-        android.util.Log.d("OpenCV",
-            "isAlreadyCropped: borderBrightness=$avgBorderBrightness aspectRatio=$aspectRatio")
-
-        // Light borders (>200/255) + document aspect ratio = already cropped
-        return avgBorderBrightness > 200.0 && isDocumentAspect
+            val borderThickness = (minOf(w, h) * 0.08).toInt().coerceAtLeast(15)
+            val medians = listOf(
+                medianBrightness(gray.submat(0, borderThickness, 0, w)),
+                medianBrightness(gray.submat(h - borderThickness, h, 0, w)),
+                medianBrightness(gray.submat(0, h, 0, borderThickness)),
+                medianBrightness(gray.submat(0, h, w - borderThickness, w))
+            )
+            val brightBorders = medians.count { it > 180 }
+            android.util.Log.d("OpenCV", "isAlreadyCropped: medians=$medians brightBorders=$brightBorders")
+            brightBorders >= 3
+        } catch (e: Exception) {
+            android.util.Log.d("OpenCV", "isAlreadyCropped crashed: ${e.message} — defaulting to false")
+            false
+        }
     }
 
+    private fun medianBrightness(mat: Mat): Double {
+        val continuous = mat.clone()
+        // ✅ Use toList via get() instead of reshape — avoids continuity issues
+        val totalPixels = continuous.rows() * continuous.cols()
+        val data = ByteArray(totalPixels)
+        // Read row by row safely
+        val values = mutableListOf<Int>()
+        for (row in 0 until continuous.rows()) {
+            val rowData = ByteArray(continuous.cols())
+            continuous.get(row, 0, rowData)
+            rowData.forEach { values.add(it.toInt() and 0xFF) }
+        }
+        values.sort()
+        return values[values.size / 2].toDouble()
+    }
 // ── Strategy 1: Multi-scale Canny — finds small cards on large backgrounds ──
 
     private fun tryCannyMultiScale(gray: Mat, src: Mat): List<Point>? {
@@ -424,37 +438,78 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun enhanceDocument(src: Mat): Mat {
+        val aspectRatio = maxOf(src.width(), src.height()).toDouble() / minOf(src.width(), src.height())
+        return if (aspectRatio in 1.3..2.2) enhanceCard(src) else enhanceTextDocument(src)
+    }
+
+    private fun enhanceCard(src: Mat): Mat {
+        val bgr = Mat()
+        when (src.channels()) {
+            1 -> Imgproc.cvtColor(src, bgr, Imgproc.COLOR_GRAY2BGR)
+            4 -> Imgproc.cvtColor(src, bgr, Imgproc.COLOR_RGBA2BGR)
+            else -> src.copyTo(bgr)
+        }
+        val blurred = Mat()
+        val result = Mat()
+        Imgproc.GaussianBlur(bgr, blurred, Size(0.0, 0.0), 3.0)
+        Core.addWeighted(bgr, 1.5, blurred, -0.5, 0.0, result)
+        return result
+    }
+
+    private fun enhanceTextDocument(src: Mat): Mat {
         val gray = Mat()
         val enhanced = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGR2GRAY)
+        when (src.channels()) {
+            1 -> src.copyTo(gray)
+            else -> Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGR2GRAY)
+        }
         Imgproc.adaptiveThreshold(
             gray, enhanced, 255.0,
             Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-            Imgproc.THRESH_BINARY,
-            11, 10.0
+            Imgproc.THRESH_BINARY, 11, 10.0
         )
         return enhanced
     }
 
-    private fun bytesToMat(bytes: ByteArray): Mat {
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            ?: throw IllegalArgumentException("Failed to decode bitmap, bytes size: ${bytes.size}")
-
-        // Bitmap → BGRA Mat
-        val bgraMat = Mat()
-        Utils.bitmapToMat(bitmap, bgraMat) // produces BGRA, not BGR
-
-        // Convert BGRA → BGR (drop alpha) so OpenCV pipeline works correctly
-        val bgrMat = Mat()
-        Imgproc.cvtColor(bgraMat, bgrMat, Imgproc.COLOR_BGRA2BGR)
-        return bgrMat
-    }
-
     private fun matToBytes(mat: Mat): ByteArray {
-        val bitmap = Bitmap.createBitmap(mat.cols(), mat.rows(), Bitmap.Config.ARGB_8888)
-        Utils.matToBitmap(mat, bitmap)
+        val displayMat = Mat()
+        when (mat.channels()) {
+            1 -> Imgproc.cvtColor(mat, displayMat, Imgproc.COLOR_GRAY2RGBA)
+            3 -> Imgproc.cvtColor(mat, displayMat, Imgproc.COLOR_BGR2RGBA)
+            4 -> mat.copyTo(displayMat)
+            else -> mat.copyTo(displayMat)
+        }
+        val bitmap = Bitmap.createBitmap(displayMat.cols(), displayMat.rows(), Bitmap.Config.ARGB_8888)
+        Utils.matToBitmap(displayMat, bitmap)
         val stream = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)
         return stream.toByteArray()
     }
+    private fun bytesToMat(bytes: ByteArray): Mat {
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: throw IllegalArgumentException("Failed to decode bitmap, bytes size: ${bytes.size}")
+
+        // Ensure ARGB_8888 format — copy only if needed
+        val argbBitmap = if (bitmap.config == Bitmap.Config.ARGB_8888) {
+            bitmap
+        } else {
+            bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                ?: throw IllegalArgumentException("Failed to convert bitmap to ARGB_8888, config: ${bitmap.config}")
+        }
+
+        android.util.Log.d("OpenCV", "bitmap config: ${argbBitmap.config} size: ${argbBitmap.width}x${argbBitmap.height}")
+
+        val rgbaMat = Mat(argbBitmap.height, argbBitmap.width, CvType.CV_8UC4)
+        Utils.bitmapToMat(argbBitmap, rgbaMat)
+
+        android.util.Log.d("OpenCV", "rgbaMat type: ${rgbaMat.type()} channels: ${rgbaMat.channels()}")
+
+        val bgrMat = Mat()
+        Imgproc.cvtColor(rgbaMat, bgrMat, Imgproc.COLOR_RGBA2BGR)
+
+        android.util.Log.d("OpenCV", "bgrMat type: ${bgrMat.type()} channels: ${bgrMat.channels()}")
+
+        return bgrMat
+    }
+
 }
