@@ -1,5 +1,3 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
@@ -14,34 +12,30 @@ class DocumentProcessorImpl implements DocumentProcessor {
 
   @override
   Future<Uint8List> compositeDocument({required Uint8List imageBytes}) async {
-    // ✅ Use native code ONLY on Android
-    if (Platform.isAndroid) {
-      try {
-        // ✅ Single call — let native handle everything
-        final result = await _channel.invokeMethod<Uint8List>(
-          'processDocument',
-          {'imageBytes': imageBytes},
-        );
+    try {
+      // ✅ Single call — let native handle everything
+      final result = await _channel.invokeMethod<Uint8List>('processDocument', {
+        'imageBytes': imageBytes,
+      });
 
-        if (result != null && result.isNotEmpty) {
-          debugPrint('✅ Native processing succeeded: ${result.length} bytes');
-          return result;
-        } else {
-          debugPrint(
-            '⚠️  Native processing returned null or empty result, using fallback',
-          );
-        }
-      } on PlatformException catch (e) {
-        debugPrint('❌ Native processing failed: ${e.code} - ${e.message}');
-        debugPrint('⚠️  Falling back to Dart implementation');
-      } catch (e, stackTrace) {
-        debugPrint('❌ Unexpected error in native processing: $e');
-        debugPrint('Stack trace: $stackTrace');
-        debugPrint('⚠️  Falling back to Dart implementation');
+      if (result != null && result.isNotEmpty) {
+        debugPrint('✅ Native processing succeeded: ${result.length} bytes');
+        return result;
+      } else {
+        debugPrint(
+          '⚠️  Native processing returned null or empty result, using fallback',
+        );
       }
+    } on PlatformException catch (e) {
+      debugPrint('❌ Native processing failed: ${e.code} - ${e.message}');
+      debugPrint('⚠️  Falling back to Dart implementation');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Unexpected error in native processing: $e');
+      debugPrint('Stack trace: $stackTrace');
+      debugPrint('⚠️  Falling back to Dart implementation');
     }
 
-    // ✅ Fallback to Dart implementation (iOS or if Android fails)
+    // ✅ Fallback to Dart implementation
     debugPrint('⚠️  Using Dart fallback processor');
     try {
       return await compute(_runDocumentProcessInIsolate, imageBytes);
@@ -57,8 +51,6 @@ class DocumentProcessorImpl implements DocumentProcessor {
   Future<List<double>?> detectDocumentCorners({
     required Uint8List imageBytes,
   }) async {
-    if (!Platform.isAndroid) return null;
-
     try {
       final result = await _channel.invokeMethod<List<Object?>>(
         'detectCorners',
@@ -77,8 +69,6 @@ class DocumentProcessorImpl implements DocumentProcessor {
     required Uint8List imageBytes,
     required List<double> corners,
   }) async {
-    if (!Platform.isAndroid) return null;
-
     try {
       return await _channel.invokeMethod<Uint8List>('perspectiveTransform', {
         'imageBytes': imageBytes,
@@ -91,7 +81,7 @@ class DocumentProcessorImpl implements DocumentProcessor {
   }
 }
 
-/// Dart fallback — runs on iOS or if native fails
+/// Dart fallback
 Uint8List _runDocumentProcessInIsolate(Uint8List imageBytes) {
   if (imageBytes.isEmpty) {
     throw ArgumentError('Image bytes are empty');
