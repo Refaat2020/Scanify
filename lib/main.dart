@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:get/get.dart';
 import 'package:hive_ce_flutter/adapters.dart';
 
@@ -9,9 +10,12 @@ import 'core/theme/app_theme.dart';
 import 'features/home/data/models/history_item_model.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+
   await _initHive();
   runApp(const ScanifyApp());
+  FlutterNativeSplash.remove();
 }
 
 Future<void> _initHive() async {
