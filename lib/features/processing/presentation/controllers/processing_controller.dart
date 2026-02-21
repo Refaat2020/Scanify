@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
@@ -12,6 +11,7 @@ import '../../domain/entities/processing_result.dart';
 import '../../domain/usecases/detect_content_type.dart';
 import '../../domain/usecases/process_document_image.dart';
 import '../../domain/usecases/process_face_image.dart';
+import '../widgets/unknown_content_dialog.dart';
 
 class ProcessingController extends GetxController {
   final ImagePicker _picker;
@@ -32,7 +32,6 @@ class ProcessingController extends GetxController {
        _processDocumentImage = processDocumentImage,
        _saveHistoryItem = saveHistoryItem;
 
-  // ── Reactive state ─────────────────────────────────────────────────────────
   final RxString currentStep = ''.obs;
   final RxDouble progress = 0.0.obs;
   final RxBool isProcessing = false.obs;
@@ -50,7 +49,6 @@ class ProcessingController extends GetxController {
     _run(source);
   }
 
-  // ── Orchestration ──────────────────────────────────────────────────────────
   Future<void> _run(String source) async {
     isProcessing.value = true;
     hasError.value = false;
@@ -94,7 +92,7 @@ class ProcessingController extends GetxController {
     _setStep('', 0.15);
 
     final choice = await Get.dialog<ProcessingType>(
-      _UnknownContentDialog(),
+      UnknownContentDialog(),
       barrierDismissible: false,
     );
 
@@ -139,7 +137,6 @@ class ProcessingController extends GetxController {
     });
   }
 
-  // ── Document pipeline ──────────────────────────────────────────────────────
   Future<void> _runDocumentPipeline(String imagePath) async {
     final steps = AppConstants.documentProcessingSteps;
 
@@ -165,7 +162,6 @@ class ProcessingController extends GetxController {
     });
   }
 
-  // ── Save + navigate ────────────────────────────────────────────────────────
   Future<void> _saveAndNavigate(ProcessingResult output) async {
     final item = HistoryItem(
       id: const Uuid().v4(),
@@ -229,161 +225,4 @@ class ProcessingController extends GetxController {
   }
 
   Future<void> _yield() => Future.delayed(const Duration(milliseconds: 80));
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Unknown content dialog — shown when neither faces nor text are detected
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _UnknownContentDialog extends StatelessWidget {
-  const _UnknownContentDialog();
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: const Color(0xFF22222E),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Icon
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: const Color(0xFF9B59FF).withOpacity(0.12),
-                shape: BoxShape.circle,
-              ),
-              child: const Center(
-                child: Text('🤔', style: TextStyle(fontSize: 30)),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            const Text(
-              'Content not recognised',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            const Text(
-              'No faces or document text were detected. Choose how you\'d like to process this image:',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Color(0xFFA0A0A8),
-                fontSize: 13,
-                height: 1.5,
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Face option
-            _ChoiceButton(
-              emoji: '👤',
-              label: 'Process as Face',
-              subtitle: 'Apply B&W filter to detected regions',
-              color: const Color(0xFF9B59FF),
-              onTap: () => Get.back(result: ProcessingType.face),
-            ),
-
-            const SizedBox(height: 10),
-
-            // Document option
-            _ChoiceButton(
-              emoji: '📄',
-              label: 'Process as Document',
-              subtitle: 'Enhance and export as PDF',
-              color: const Color(0xFF00C9A7),
-              onTap: () => Get.back(result: ProcessingType.document),
-            ),
-
-            const SizedBox(height: 10),
-
-            // Cancel
-            TextButton(
-              onPressed: () => Get.back(result: null),
-              child: const Text(
-                'Cancel',
-                style: TextStyle(color: Color(0xFF6B6B75), fontSize: 14),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ChoiceButton extends StatelessWidget {
-  final String emoji;
-  final String label;
-  final String subtitle;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _ChoiceButton({
-    required this.emoji,
-    required this.label,
-    required this.subtitle,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: color.withOpacity(0.3)),
-          ),
-          child: Row(
-            children: [
-              Text(emoji, style: const TextStyle(fontSize: 26)),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        color: Color(0xFF6B6B75),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right, color: color, size: 18),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }

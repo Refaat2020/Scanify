@@ -5,8 +5,8 @@ import '../../../../core/enums/processing_type.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/gradient_text.dart';
 import '../controllers/processing_controller.dart';
-import 'Image_preview.dart';
 import 'animated_progress_bar.dart';
+import 'image_preview.dart';
 import 'placeholder_preview.dart';
 import 'step_indicators.dart';
 

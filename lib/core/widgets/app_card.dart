@@ -31,7 +31,10 @@ class AppCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: color ?? AppTheme.cardBackground,
             borderRadius: radius,
-            border: Border.all(color: Colors.white.withOpacity(0.08), width: 1),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.08),
+              width: 1,
+            ),
           ),
           child: Padding(
             padding: padding ?? const EdgeInsets.all(16),

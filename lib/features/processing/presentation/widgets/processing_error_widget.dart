@@ -26,7 +26,7 @@ class ProcessingErrorWidget extends StatelessWidget {
             width: 80,
             height: 80,
             decoration: BoxDecoration(
-              color: Colors.redAccent.withOpacity(0.1),
+              color: Colors.redAccent.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
             child: const Center(

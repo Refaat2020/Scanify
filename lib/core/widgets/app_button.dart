@@ -98,8 +98,8 @@ class AppButton extends StatelessWidget {
           foregroundColor: isDanger ? Colors.redAccent : AppTheme.textPrimary,
           side: BorderSide(
             color: isDanger
-                ? Colors.redAccent.withOpacity(0.5)
-                : Colors.white.withOpacity(0.15),
+                ? Colors.redAccent.withValues(alpha: 0.5)
+                : Colors.white.withValues(alpha: 0.15),
           ),
           padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
           shape: RoundedRectangleBorder(
