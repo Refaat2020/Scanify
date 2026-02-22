@@ -156,7 +156,7 @@ class ImageProcessingDataSourceImpl implements ImageProcessingDataSource {
       if (!await file.exists()) {
         throw ImageProcessingException('Image file does not exist: $imagePath');
       }
-      
+
       final imageBytes = await file.readAsBytes();
       if (imageBytes.isEmpty) {
         throw ImageProcessingException('Image file is empty: $imagePath');
@@ -168,18 +168,21 @@ class ImageProcessingDataSourceImpl implements ImageProcessingDataSource {
         final inputImage = InputImage.fromFilePath(imagePath);
         await textRecognizer.processImage(inputImage);
       } catch (e) {
-        debugPrint('⚠️  Text recognition validation failed (continuing anyway): $e');
+        debugPrint(
+          '⚠️  Text recognition validation failed (continuing anyway): $e',
+        );
       }
 
       // 3. ✅ Single call to processor
       //    Android: native processDocument (all-in-one)
-      //    iOS: Dart fallback
       final processedJpgBytes = await documentProcessor.compositeDocument(
         imageBytes: imageBytes,
       );
 
       if (processedJpgBytes.isEmpty) {
-        throw ImageProcessingException('Document processing returned empty result');
+        throw ImageProcessingException(
+          'Document processing returned empty result',
+        );
       }
 
       // 4. Generate PDF
