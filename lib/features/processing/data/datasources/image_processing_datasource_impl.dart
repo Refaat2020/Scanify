@@ -107,7 +107,7 @@ class ImageProcessingDataSourceImpl implements ImageProcessingDataSource {
         throw const ImageProcessingException('No faces found in image');
       }
 
-      // 3. Build serialisable face rects (Rect is not isolate-safe).
+      // 3. Build serializable face rects (Rect is not isolate-safe).
       //    Decode once here on the main isolate just to read dimensions —
       //    the heavy pixel work still happens inside compute() below.
       final imageForSize = img.decodeImage(imageBytes)!;

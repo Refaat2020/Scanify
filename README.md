@@ -299,7 +299,7 @@ All CPU-intensive operations (`img.grayscale`, `img.compositeImage`, `pdf.save()
 **Features**
 - **Home** — History list, Hive persistence, delete with optimistic rollback
 - **Processing** — Image capture, ML Kit detection, native OpenCV integration, face/document pipelines
-- **Result** — Before/after slider, side-by-side compare, PDF viewer
+- **Result** — side-by-side compare, PDF viewer
 - **History Detail** — Full-screen viewer, metadata card, share/delete/OCR actions
 - **OCR** — Text extraction with search highlighting, copy, share
 - **Batch** — Multi-image picker, queue processing, live progress tracker
