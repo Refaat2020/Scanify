@@ -174,7 +174,6 @@ class ImageProcessingDataSourceImpl implements ImageProcessingDataSource {
       }
 
       // 3. ✅ Single call to processor
-      //    Android: native processDocument (all-in-one)
       final processedJpgBytes = await documentProcessor.compositeDocument(
         imageBytes: imageBytes,
       );
