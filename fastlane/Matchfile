@@ -1,0 +1,8 @@
+git_url(ENV["MATCH_GIT_URL"])
+storage_mode("git")
+type("appstore")
+app_identifier(["com.code.way.task.codeWayTask"])
+username(ENV["APP_STORE_CONNECT_USERNAME"])
+team_id(ENV.fetch("APPLE_TEAM_ID", "4D3566YCKZ"))
+readonly(ENV["CI"] == "true")
+

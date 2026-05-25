@@ -121,7 +121,9 @@ class OcrController extends GetxController {
 
   Future<void> shareText() async {
     if (result.value == null) return;
-    await Share.share(result.value!.fullText, subject: 'Extracted Text');
+    await SharePlus.instance.share(
+      ShareParams(text: result.value!.fullText, subject: 'Extracted Text'),
+    );
   }
 
   void _setStep(String label, double value) {

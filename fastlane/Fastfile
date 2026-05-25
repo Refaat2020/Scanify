@@ -1,0 +1,125 @@
+default_platform(:ios)
+
+require "base64"
+require "fileutils"
+
+def flutter_bin
+  ENV.fetch("FLUTTER_BIN", "flutter")
+end
+
+def flutter_build_args
+  args = []
+  build_number = ENV["BUILD_NUMBER"].to_s.strip
+  args += ["--build-number", build_number] unless build_number.empty?
+  args.join(" ")
+end
+
+def require_env!(keys)
+  missing = keys.select { |key| ENV[key].to_s.strip.empty? }
+  return if missing.empty?
+
+  UI.user_error!("Missing required environment variables: #{missing.join(', ')}")
+end
+
+def write_android_signing_files
+  require_env!(
+    %w[
+      ANDROID_KEYSTORE_BASE64
+      ANDROID_KEYSTORE_PASSWORD
+      ANDROID_KEY_ALIAS
+      ANDROID_KEY_PASSWORD
+    ]
+  )
+
+  keystore_path = File.expand_path("../android/upload-keystore.jks", __dir__)
+  properties_path = File.expand_path("../android/key.properties", __dir__)
+
+  File.binwrite(keystore_path, Base64.decode64(ENV.fetch("ANDROID_KEYSTORE_BASE64")))
+  File.write(
+    properties_path,
+    [
+      "storeFile=upload-keystore.jks",
+      "storePassword=#{ENV.fetch('ANDROID_KEYSTORE_PASSWORD')}",
+      "keyAlias=#{ENV.fetch('ANDROID_KEY_ALIAS')}",
+      "keyPassword=#{ENV.fetch('ANDROID_KEY_PASSWORD')}"
+    ].join("\n") + "\n"
+  )
+end
+
+platform :android do
+  desc "Build Android release AAB and split APK artifacts"
+  lane :build_release_artifacts do
+    sh("#{flutter_bin} pub get")
+    sh("#{flutter_bin} build appbundle --release #{flutter_build_args}".strip)
+    sh("#{flutter_bin} build apk --release --split-per-abi #{flutter_build_args}".strip)
+  end
+
+  desc "Build, sign, and upload Android AAB to Google Play"
+  lane :upload_play_internal do
+    require_env!(%w[GOOGLE_PLAY_SERVICE_ACCOUNT_JSON])
+    write_android_signing_files
+
+    json_key_path = File.expand_path("../build/fastlane/google-play-service-account.json", __dir__)
+    FileUtils.mkdir_p(File.dirname(json_key_path))
+    File.write(json_key_path, ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"))
+
+    sh("#{flutter_bin} pub get")
+    sh("#{flutter_bin} build appbundle --release #{flutter_build_args}".strip)
+
+    upload_to_play_store(
+      package_name: "com.code.way.task.code_way_task",
+      track: ENV.fetch("PLAY_STORE_TRACK", "internal"),
+      aab: "build/app/outputs/bundle/release/app-release.aab",
+      json_key: json_key_path,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  ensure
+    FileUtils.rm_f(json_key_path) if defined?(json_key_path)
+  end
+end
+
+platform :ios do
+  desc "Build an unsigned iOS app artifact for CI validation"
+  lane :build_unsigned do
+    sh("#{flutter_bin} precache --ios")
+    sh("#{flutter_bin} pub get")
+    sh("cd ios && pod install --repo-update")
+    sh("#{flutter_bin} build ios --release --no-codesign #{flutter_build_args}".strip)
+    sh("mkdir -p build/release")
+    sh("ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app build/release/scanify-ios-no-codesign.zip")
+  end
+
+  desc "Build a signed IPA and upload it to TestFlight"
+  lane :upload_testflight do
+    require_env!(
+      %w[
+        APP_STORE_CONNECT_API_KEY_ID
+        APP_STORE_CONNECT_ISSUER_ID
+        APP_STORE_CONNECT_API_KEY
+        MATCH_GIT_URL
+        MATCH_PASSWORD
+      ]
+    )
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("APP_STORE_CONNECT_API_KEY_ID"),
+      issuer_id: ENV.fetch("APP_STORE_CONNECT_ISSUER_ID"),
+      key_content: ENV.fetch("APP_STORE_CONNECT_API_KEY"),
+      is_key_content_base64: true
+    )
+
+    match(type: "appstore", readonly: ENV["CI"] == "true", api_key: api_key)
+
+    sh("#{flutter_bin} pub get")
+    sh("cd ios && pod install --repo-update")
+    sh("#{flutter_bin} build ipa --release #{flutter_build_args}".strip)
+
+    upload_to_testflight(
+      api_key: api_key,
+      ipa: "build/ios/ipa/Runner.ipa",
+      skip_waiting_for_build_processing: true
+    )
+  end
+end

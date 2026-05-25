@@ -48,7 +48,8 @@ import Flutter
                     result(FlutterError(code: "INVALID_ARGS", message: "Missing imageBytes or corners", details: nil))
                     return
                 }
-                if let warped = DocumentCV.perspectiveTransform(imageData, corners: corners) {
+                let nativeCorners = corners.map { NSNumber(value: $0) }
+                if let warped = DocumentCV.perspectiveTransform(imageData, corners: nativeCorners) {
                     result(FlutterStandardTypedData(bytes: warped))
                 } else {
                     result(FlutterError(code: "TRANSFORM_ERROR", message: "Failed to transform", details: nil))

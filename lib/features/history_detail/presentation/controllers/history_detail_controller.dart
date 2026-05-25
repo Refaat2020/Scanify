@@ -73,9 +73,12 @@ class HistoryDetailController extends GetxController {
   Future<void> shareResult() async {
     final path = item.value?.resultPath;
     if (path == null || !File(path).existsSync()) return;
-    await Share.shareXFiles([
-      XFile(path),
-    ], subject: item.value?.processingType.label ?? 'Result');
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(path)],
+        subject: item.value?.processingType.label ?? 'Result',
+      ),
+    );
   }
 
   Future<void> copyPathToClipboard() async {

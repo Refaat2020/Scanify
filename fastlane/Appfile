@@ -1,0 +1,9 @@
+app_identifier("com.code.way.task.codeWayTask")
+package_name("com.code.way.task.code_way_task")
+
+apple_id(ENV["APP_STORE_CONNECT_USERNAME"])
+team_id(ENV.fetch("APPLE_TEAM_ID", "4D3566YCKZ"))
+itc_team_id(ENV["APP_STORE_CONNECT_TEAM_ID"])
+
+json_key_file(ENV["SUPPLY_JSON_KEY"]) if ENV["SUPPLY_JSON_KEY"]
+

@@ -1,6 +1,7 @@
 #import "DocumentCV.h"
-#import <opencv2/opencv.hpp>
-#import <opencv2/imgcodecs/ios.h>
+#import <opencv2/core.hpp>
+#import <opencv2/imgcodecs.hpp>
+#import <opencv2/imgproc.hpp>
 
 @implementation DocumentCV
 

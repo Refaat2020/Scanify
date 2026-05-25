@@ -52,6 +52,8 @@ class ResultController extends GetxController {
   Future<void> onShare() async {
     final path = result.value?.resultPath;
     if (path == null || !File(path).existsSync()) return;
-    await Share.shareXFiles([XFile(path)], subject: resultLabel);
+    await SharePlus.instance.share(
+      ShareParams(files: [XFile(path)], subject: resultLabel),
+    );
   }
 }

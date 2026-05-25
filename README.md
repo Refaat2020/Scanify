@@ -104,7 +104,7 @@ ios/Runner/
 | ML Kit | google_mlkit_face_detection, google_mlkit_text_recognition |
 | Image Processing | image 4.1.7 (with `compute()` for isolates) |
 | **Document Scanning (Android)** | **Native OpenCV 4.9.0 (Kotlin + JNI)** |
-| **Document Scanning (iOS)** | **Native OpenCV 4.9.0 (Objective-C++ via CocoaPods)** |
+| **Document Scanning (iOS)** | **Native OpenCV 4.3.0 (Objective-C++ via CocoaPods)** |
 | PDF Generation | pdf 3.10.8 |
 | Architecture | Clean Architecture + Either (dartz) |
 | Routing | GetX named routes with bindings |
@@ -168,19 +168,19 @@ dependencies {
 All permissions are declared in `android/app/src/main/AndroidManifest.xml`.
 
 ### iOS
-- **Min version**: 13.0
-- **Native OpenCV**: 4.9.0 (via CocoaPods)
+- **Min version**: 15.5
+- **Native OpenCV**: 4.3.0 (via CocoaPods)
 - **Permissions**: Camera, Photo Library (read + write)
 - **Method Channel**: `com.code/document_processor` (same as Android)
 - **Document Processing**: Full native OpenCV pipeline (identical to Android)
 
 ```ruby
 # ios/Podfile
-platform :ios, '13.0'
+platform :ios, '15.5'
 
 target 'Runner' do
   use_frameworks!
-  pod 'OpenCV', '~> 4.9.0'
+  pod 'OpenCV', '~> 4.3'
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
@@ -191,7 +191,7 @@ post_install do |installer|
       config.build_settings['ENABLE_BITCODE'] = 'NO'
       config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
       config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.5'
     end
   end
 end
@@ -444,5 +444,5 @@ Built as a Flutter Clean Architecture case study demonstrating:
 **Architecture**: Clean Architecture + Either pattern + Processor abstraction
 **State Management**: GetX
 **ML**: Google ML Kit
-**Document Scanning**: Native OpenCV 4.9.0 on **Android + iOS** with Dart fallback
+**Document Scanning**: Native OpenCV on **Android + iOS** with Dart fallback
 **Storage**: Hive + file system

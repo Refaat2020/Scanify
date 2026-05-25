@@ -4,8 +4,8 @@
 .dart_tool/
 .packages
 build/
-# If you're building an application, you may want to check-in your pubspec.lock
-pubspec.lock
+# Flutter applications should commit pubspec.lock for reproducible CI builds.
+coverage/
 
 # Directory created by dartdoc
 # If you don't generate documentation locally you can remove this line.
@@ -13,6 +13,9 @@ doc/api/
 
 # dotenv environment variables file
 .env*
+android/key.properties
+android/*.jks
+android/*.keystore
 
 # Avoid committing generated Javascript files:
 *.dart.js
