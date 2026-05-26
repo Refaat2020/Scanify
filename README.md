@@ -446,3 +446,12 @@ Built as a Flutter Clean Architecture case study demonstrating:
 **ML**: Google ML Kit
 **Document Scanning**: Native OpenCV on **Android + iOS** with Dart fallback
 **Storage**: Hive + file system
+
+
+
+
+
+
+
+
+
