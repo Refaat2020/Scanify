@@ -73,5 +73,5 @@ flutter {
     source = "../.."
 }
 dependencies {
-    implementation("org.opencv:opencv:4.9.0")
+    implementation("org.opencv:opencv:4.13.0")
 }
